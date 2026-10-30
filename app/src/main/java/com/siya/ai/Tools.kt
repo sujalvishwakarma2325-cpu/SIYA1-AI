@@ -335,8 +335,13 @@ class Tools(private val ctx: Context, private val store: Store) {
         val steps = i.getJSONArray("steps")
         if (steps.length() == 0) return "Skill me kam se kam ek step chahiye."
         for (n in 0 until steps.length()) {
-            val t = steps.getJSONObject(n).getString("tool")
+            val st = steps.getJSONObject(n)
+            val t = st.getString("tool")
             if (t !in names || t in notInSkills) return "Step ${n + 1} me tool allowed nahi hai: $t"
+            // Gemini input ko JSON text ki tarah bhejta hai; use object bana lo.
+            val raw = st.opt("input")
+            if (raw is String) st.put("input", if (raw.isBlank()) JSONObject() else JSONObject(raw))
+            else if (raw == null) st.put("input", JSONObject())
         }
         store.saveSkill(
             JSONObject().put("name", i.getString("name")).put("description", i.optString("description")).put("steps", steps)

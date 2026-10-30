@@ -16,6 +16,21 @@ class Store(ctx: Context) {
         get() = p.getString("model", "claude-sonnet-5-5") ?: "claude-sonnet-5-5"
         set(v) { p.edit().putString("model", v.trim()).apply() }
 
+    /** "gemini" (free) ya "claude" (paid). */
+    var provider: String
+        get() = p.getString("provider", "gemini") ?: "gemini"
+        set(v) { p.edit().putString("provider", v).apply() }
+
+    var geminiKey: String
+        get() = p.getString("geminiKey", "") ?: ""
+        set(v) { p.edit().putString("geminiKey", v.trim()).apply() }
+
+    var geminiModel: String
+        get() = p.getString("geminiModel", "gemini-flash-latest") ?: "gemini-flash-latest"
+        set(v) { p.edit().putString("geminiModel", v.trim().ifBlank { "gemini-flash-latest" }).apply() }
+
+    fun activeKey(): String = if (provider == "claude") apiKey else geminiKey
+
     var assistantName: String
         get() = p.getString("name", "Siya") ?: "Siya"
         set(v) { p.edit().putString("name", v.trim().ifBlank { "Siya" }).apply() }

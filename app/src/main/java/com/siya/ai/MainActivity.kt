@@ -66,7 +66,7 @@ class SiyaVM(app: Application) : AndroidViewModel(app) {
     var listening by mutableStateOf(false)
     var busy by mutableStateOf(false)
     var confirmText by mutableStateOf<String?>(null)
-    var showSettings by mutableStateOf(store.apiKey.isBlank())
+    var showSettings by mutableStateOf(store.activeKey().isBlank())
     var conversationMode by mutableStateOf(store.conversationMode)
 
     private var pending: CompletableDeferred<Boolean>? = null
@@ -276,6 +276,8 @@ fun Bubble(m: Msg) {
 fun SettingsDialog(vm: SiyaVM) {
     val s = vm.store
     var key by remember { mutableStateOf(s.apiKey) }
+    var useClaude by remember { mutableStateOf(s.provider == "claude") }
+    var gKey by remember { mutableStateOf(s.geminiKey) }
     var nm by remember { mutableStateOf(s.assistantName) }
     var lang by remember { mutableStateOf(s.language) }
     var voiceOn by remember { mutableStateOf(s.voiceReplies) }
@@ -286,11 +288,23 @@ fun SettingsDialog(vm: SiyaVM) {
         title = { Text("Settings") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = key, onValueChange = { key = it },
-                    label = { Text("Claude API key") },
-                    visualTransformation = PasswordVisualTransformation(), singleLine = true
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(if (useClaude) "AI: Claude (paid)" else "AI: Gemini (free)", Modifier.weight(1f))
+                    Switch(checked = useClaude, onCheckedChange = { useClaude = it })
+                }
+                if (useClaude) {
+                    OutlinedTextField(
+                        value = key, onValueChange = { key = it },
+                        label = { Text("Claude API key") },
+                        visualTransformation = PasswordVisualTransformation(), singleLine = true
+                    )
+                } else {
+                    OutlinedTextField(
+                        value = gKey, onValueChange = { gKey = it },
+                        label = { Text("Gemini API key (free)") },
+                        visualTransformation = PasswordVisualTransformation(), singleLine = true
+                    )
+                }
                 OutlinedTextField(value = nm, onValueChange = { nm = it }, label = { Text("Assistant ka naam") }, singleLine = true)
                 OutlinedTextField(value = lang, onValueChange = { lang = it }, label = { Text("Bhasha (hi-IN, en-IN)") }, singleLine = true)
                 OutlinedTextField(value = extra, onValueChange = { extra = it }, label = { Text("Khaas nirdesh") })
@@ -304,6 +318,8 @@ fun SettingsDialog(vm: SiyaVM) {
         confirmButton = {
             TextButton(onClick = {
                 s.apiKey = key
+                s.geminiKey = gKey
+                s.provider = if (useClaude) "claude" else "gemini"
                 s.assistantName = nm
                 s.language = lang
                 s.voiceReplies = voiceOn
