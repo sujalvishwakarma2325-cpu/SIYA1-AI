@@ -9,8 +9,8 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-/** Google Gemini (free tier) ko call karta hai. Blocking hai, isliye IO thread par chalao. */
-class GeminiClient(private val store: Store) {
+/** Google Gemini (free tier). Blocking hai, isliye IO thread par chalao. */
+class GeminiClient {
     private val http = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
@@ -56,21 +56,21 @@ class GeminiClient(private val store: Store) {
         return JSONArray().put(JSONObject().put("functionDeclarations", decls))
     }
 
-    fun send(system: String, tools: JSONArray, contents: JSONArray): JSONObject {
+    fun send(key: String, model: String, system: String, tools: JSONArray, contents: JSONArray): JSONObject {
         val body = JSONObject()
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system))))
             .put("contents", contents)
             .put("tools", convertTools(tools))
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/${store.geminiModel}:generateContent"
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
         val req = Request.Builder()
             .url(url)
-            .header("x-goog-api-key", store.geminiKey)
+            .header("x-goog-api-key", key)
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
         http.newCall(req).execute().use { r ->
             val txt = r.body?.string() ?: ""
-            if (r.code == 429) throw IOException("Free limit abhi poori ho gayi hai. Thodi der baad dobara try karo.")
-            if (!r.isSuccessful) throw IOException("Gemini ${r.code}: ${txt.take(200)}")
+            if (r.code == 429) throw IOException("HTTP 429: free limit poori ho gayi")
+            if (!r.isSuccessful) throw IOException("HTTP ${r.code}: ${txt.take(200)}")
             return JSONObject(txt)
         }
     }

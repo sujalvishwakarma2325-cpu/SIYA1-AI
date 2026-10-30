@@ -12,8 +12,22 @@ android {
         applicationId = "com.siya.ai"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1"
+        // Har GitHub build ka number badhta hai, isliye naya APK purani app ke upar update ho jata hai.
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+        versionName = "0.2.$versionCode"
+    }
+
+    // Hamesha ek hi signing key, taaki update bina uninstall ke ho (key alag hui to Android update rok deta hai).
+    signingConfigs {
+        create("siya") {
+            storeFile = file("siya.keystore")
+            storePassword = "siya-ai-2026"
+            keyAlias = "siya"
+            keyPassword = "siya-ai-2026"
+        }
+    }
+    buildTypes {
+        getByName("debug") { signingConfig = signingConfigs.getByName("siya") }
     }
 
     buildFeatures { compose = true }

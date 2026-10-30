@@ -27,7 +27,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -43,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -51,6 +54,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
+
+const val RELEASES_URL = "https://github.com/sujalvishwakarma2325-cpu/SIYA1-AI/releases/latest"
 
 data class Msg(val fromUser: Boolean, val text: String)
 
@@ -66,7 +71,7 @@ class SiyaVM(app: Application) : AndroidViewModel(app) {
     var listening by mutableStateOf(false)
     var busy by mutableStateOf(false)
     var confirmText by mutableStateOf<String?>(null)
-    var showSettings by mutableStateOf(store.activeKey().isBlank())
+    var showSettings by mutableStateOf(store.ready().isEmpty())
     var conversationMode by mutableStateOf(store.conversationMode)
 
     private var pending: CompletableDeferred<Boolean>? = null
@@ -182,6 +187,11 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun SiyaScreen(vm: SiyaVM) {
+    if (vm.showSettings) SettingsScreen(vm) else ChatScreen(vm)
+}
+
+@Composable
+fun ChatScreen(vm: SiyaVM) {
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     LaunchedEffect(vm.msgs.size) {
@@ -251,7 +261,6 @@ fun SiyaScreen(vm: SiyaVM) {
             dismissButton = { TextButton(onClick = { vm.answer(false) }) { Text("Nahi") } }
         )
     }
-    if (vm.showSettings) SettingsDialog(vm)
 }
 
 @Composable
@@ -273,61 +282,158 @@ fun Bubble(m: Msg) {
 }
 
 @Composable
-fun SettingsDialog(vm: SiyaVM) {
+fun ProviderCard(
+    p: Provider,
+    s: Store,
+    isMain: Boolean,
+    onMain: () -> Unit,
+    onDelete: (() -> Unit)?
+) {
+    var key by remember(p.id) { mutableStateOf(s.key(p.id)) }
+    var model by remember(p.id) { mutableStateOf(s.model(p.id, p.model)) }
+    var url by remember(p.id) { mutableStateOf(s.baseUrl(p.id, p.baseUrl)) }
+    var acct by remember(p.id) { mutableStateOf(s.account(p.id)) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RadioButton(selected = isMain, onClick = onMain)
+            Text(
+                p.label + if (key.isNotBlank()) "  (key hai)" else "",
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f)
+            )
+            if (onDelete != null) TextButton(onClick = onDelete) { Text("Hatao") }
+        }
+        if (p.keyUrl.isNotBlank()) {
+            Text("Key yahan milegi: ${p.keyUrl}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        OutlinedTextField(
+            value = key,
+            onValueChange = { key = it; s.setKey(p.id, it) },
+            label = { Text("API key") },
+            visualTransformation = PasswordVisualTransformation(),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (p.needsAccountId) {
+            OutlinedTextField(
+                value = acct,
+                onValueChange = { acct = it; s.setAccount(p.id, it) },
+                label = { Text("Account ID") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        if (p.kind == Kind.OPENAI) {
+            OutlinedTextField(
+                value = url,
+                onValueChange = { url = it; s.setBaseUrl(p.id, it) },
+                label = { Text("Address (base URL)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        OutlinedTextField(
+            value = model,
+            onValueChange = { model = it; s.setModel(p.id, it) },
+            label = { Text("Model") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
+fun SettingsScreen(vm: SiyaVM) {
     val s = vm.store
-    var key by remember { mutableStateOf(s.apiKey) }
-    var useClaude by remember { mutableStateOf(s.provider == "claude") }
-    var gKey by remember { mutableStateOf(s.geminiKey) }
+    val uri = LocalUriHandler.current
+    var customs by remember { mutableStateOf(s.customs()) }
+    var main by remember { mutableStateOf(s.mainProvider) }
+    var fallback by remember { mutableStateOf(s.fallback) }
+    var tavily by remember { mutableStateOf(s.tavilyKey) }
     var nm by remember { mutableStateOf(s.assistantName) }
     var lang by remember { mutableStateOf(s.language) }
     var voiceOn by remember { mutableStateOf(s.voiceReplies) }
     var extra by remember { mutableStateOf(s.extraInstructions) }
+    var cName by remember { mutableStateOf("") }
+    var cUrl by remember { mutableStateOf("") }
+    var cModel by remember { mutableStateOf("") }
+    var cKey by remember { mutableStateOf("") }
 
-    AlertDialog(
-        onDismissRequest = { vm.showSettings = false },
-        title = { Text("Settings") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(if (useClaude) "AI: Claude (paid)" else "AI: Gemini (free)", Modifier.weight(1f))
-                    Switch(checked = useClaude, onCheckedChange = { useClaude = it })
-                }
-                if (useClaude) {
-                    OutlinedTextField(
-                        value = key, onValueChange = { key = it },
-                        label = { Text("Claude API key") },
-                        visualTransformation = PasswordVisualTransformation(), singleLine = true
-                    )
-                } else {
-                    OutlinedTextField(
-                        value = gKey, onValueChange = { gKey = it },
-                        label = { Text("Gemini API key (free)") },
-                        visualTransformation = PasswordVisualTransformation(), singleLine = true
-                    )
-                }
-                OutlinedTextField(value = nm, onValueChange = { nm = it }, label = { Text("Assistant ka naam") }, singleLine = true)
-                OutlinedTextField(value = lang, onValueChange = { lang = it }, label = { Text("Bhasha (hi-IN, en-IN)") }, singleLine = true)
-                OutlinedTextField(value = extra, onValueChange = { extra = it }, label = { Text("Khaas nirdesh") })
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Bolkar jawab", Modifier.weight(1f))
-                    Switch(checked = voiceOn, onCheckedChange = { voiceOn = it })
-                }
-                Text("Jodi hui skills: ${s.skillCount()}", fontSize = 12.sp)
+    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Settings", fontWeight = FontWeight.Bold, fontSize = 22.sp, modifier = Modifier.weight(1f))
+                Button(onClick = { vm.refresh(); vm.showSettings = false }) { Text("Band karo") }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                s.apiKey = key
-                s.geminiKey = gKey
-                s.provider = if (useClaude) "claude" else "gemini"
-                s.assistantName = nm
-                s.language = lang
-                s.voiceReplies = voiceOn
-                s.extraInstructions = extra
-                vm.refresh()
-                vm.showSettings = false
-            }) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = { vm.showSettings = false }) { Text("Band") } }
-    )
+
+            Text(
+                "AI providers: jis ki key daaloge wo use hoga. Jise gola (Main) se chunoge wo pehle try hoga.",
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            (Providers.builtIn + customs).forEach { p ->
+                val del: (() -> Unit)? =
+                    if (p.custom) ({ s.removeCustom(p.id); customs = s.customs() }) else null
+                ProviderCard(
+                    p = p, s = s, isMain = (main == p.id),
+                    onMain = { main = p.id; s.mainProvider = p.id },
+                    onDelete = del
+                )
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Limit khatam ho to agli AI par jao", Modifier.weight(1f))
+                Switch(checked = fallback, onCheckedChange = { fallback = it; s.fallback = it })
+            }
+
+            Text("Web search (Tavily)", fontWeight = FontWeight.SemiBold)
+            OutlinedTextField(
+                value = tavily,
+                onValueChange = { tavily = it; s.tavilyKey = it },
+                label = { Text("Tavily API key") },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text("Naya provider jodo (OpenAI-compatible)", fontWeight = FontWeight.SemiBold)
+            OutlinedTextField(value = cName, onValueChange = { cName = it }, label = { Text("Naam") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = cUrl, onValueChange = { cUrl = it }, label = { Text("Address, jaise https://api.example.com/v1") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = cModel, onValueChange = { cModel = it }, label = { Text("Model") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                value = cKey, onValueChange = { cKey = it }, label = { Text("API key") },
+                visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedButton(onClick = {
+                if (cName.isNotBlank() && cUrl.isNotBlank() && cModel.isNotBlank()) {
+                    val id = s.addCustom(cName, cUrl, cModel)
+                    s.setKey(id, cKey)
+                    customs = s.customs()
+                    cName = ""; cUrl = ""; cModel = ""; cKey = ""
+                }
+            }) { Text("Jodo") }
+
+            Text("Assistant", fontWeight = FontWeight.SemiBold)
+            OutlinedTextField(value = nm, onValueChange = { nm = it; s.assistantName = it }, label = { Text("Assistant ka naam") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = lang, onValueChange = { lang = it; s.language = it }, label = { Text("Bhasha (hi-IN, en-IN)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = extra, onValueChange = { extra = it; s.extraInstructions = it }, label = { Text("Khaas nirdesh") }, modifier = Modifier.fillMaxWidth())
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Bolkar jawab", Modifier.weight(1f))
+                Switch(checked = voiceOn, onCheckedChange = { voiceOn = it; s.voiceReplies = it })
+            }
+            Text("Jodi hui skills: ${s.skillCount()}", fontSize = 12.sp)
+
+            OutlinedButton(onClick = { uri.openUri(RELEASES_URL) }) { Text("Naya version download karo") }
+        }
+    }
 }

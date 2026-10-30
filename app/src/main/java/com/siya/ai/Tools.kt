@@ -17,6 +17,10 @@ import android.telephony.SmsManager
 import android.view.KeyEvent
 import org.json.JSONArray
 import org.json.JSONObject
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.time.LocalDateTime
 import java.time.ZoneId
 
@@ -90,6 +94,11 @@ class Tools(private val ctx: Context, private val store: Store) {
         a.put(tool("read_notes", "Read all saved notes."))
         a.put(tool("clear_notes", "Delete all saved notes."))
 
+        if (store.tavilyKey.isNotBlank()) {
+            a.put(tool("internet_search", "Search the internet for current information (news, prices, facts) and get a short answer with sources.",
+                listOf(Triple("query", "string", "What to search for")), listOf("query")))
+        }
+
         // ---- khud ko badalne wale tools (har baar user se poochhe jaate hain) ----
         a.put(tool("change_my_setting",
             "Change the assistant's own setting. Keys: assistant_name, language (hi-IN, en-IN, en-US), voice_replies (true/false), extra_instructions (free text on how to behave).",
@@ -162,6 +171,7 @@ class Tools(private val ctx: Context, private val store: Store) {
                 "set_brightness" -> brightness(input.getInt("percent"))
                 "media_control" -> media(input.getString("action"))
                 "phone_status" -> status()
+                "internet_search" -> search(input.getString("query"))
                 "open_settings" -> openSettings(input.optString("page", "main"))
                 "navigate" -> go(
                     Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=" + Uri.encode(input.getString("place")))),
@@ -285,6 +295,37 @@ class Tools(private val ctx: Context, private val store: Store) {
         val charging = st == BatteryManager.BATTERY_STATUS_CHARGING || st == BatteryManager.BATTERY_STATUS_FULL
         val pct = if (level >= 0 && scale > 0) level * 100 / scale else -1
         return "Battery $pct%, charging: ${if (charging) "haan" else "nahi"}. Abhi: ${LocalDateTime.now()}"
+    }
+
+    private val http = OkHttpClient()
+
+    /** Tavily se web search. Ye IO thread par hi chalta hai (Agent ke andar se). */
+    private fun search(q: String): String {
+        val key = store.tavilyKey
+        if (key.isBlank()) return "Tavily ki key nahi hai."
+        val body = JSONObject().put("query", q).put("max_results", 5).put("include_answer", true)
+        val req = Request.Builder()
+            .url("https://api.tavily.com/search")
+            .header("Authorization", "Bearer $key")
+            .post(body.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        http.newCall(req).execute().use { r ->
+            val txt = r.body?.string() ?: ""
+            if (!r.isSuccessful) return "Search fail hui (HTTP ${r.code})."
+            val j = JSONObject(txt)
+            val sb = StringBuilder()
+            val ans = j.optString("answer", "")
+            if (ans.isNotBlank() && ans != "null") sb.append("Answer: ").append(ans).append('\n')
+            val res = j.optJSONArray("results")
+            if (res != null) {
+                for (i in 0 until minOf(res.length(), 4)) {
+                    val o = res.getJSONObject(i)
+                    sb.append("- ").append(o.optString("title")).append(": ")
+                        .append(o.optString("content").take(300)).append(" (").append(o.optString("url")).append(")\n")
+                }
+            }
+            return sb.toString().ifBlank { "Kuch nahi mila." }
+        }
     }
 
     private fun openSettings(page: String): String {
